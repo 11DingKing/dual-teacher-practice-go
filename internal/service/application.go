@@ -7,7 +7,6 @@ import (
 	"github.com/11DingKing/dual-teacher-practice-go/internal/clock"
 	"github.com/11DingKing/dual-teacher-practice-go/internal/domain"
 	"github.com/11DingKing/dual-teacher-practice-go/internal/repository"
-	"time"
 )
 
 type Application struct {
@@ -46,19 +45,17 @@ func (s Application) Submit(ctx context.Context, a domain.Application, actor, re
 	if e = s.Apps.CreateTx(ctx, tx, a); e != nil {
 		return a, e
 	}
+	// Audit is written inside the same transaction so a failed audit write
+	// (e.g. invalidated operator info) rolls back the reserved quota and the
+	// created application instead of leaving committed business state behind.
 	ev := domain.AuditEvent{ID: token(), ActorID: actor, Action: "application_created", EntityType: "application", EntityID: a.ID, Outcome: "success", RequestID: requestID, Details: "quota reserved", CreatedAt: now}
+	if e = s.Audit.AppendTx(ctx, tx, ev); e != nil {
+		return a, fmt.Errorf("audit application: %w", e)
+	}
 	if e = tx.Commit(); e != nil {
 		return a, fmt.Errorf("commit application: %w", e)
 	}
-	auditErr := s.Audit.Append(ctx, ev)
-	if auditErr != nil {
-		return a, fmt.Errorf("audit after commit: %w", auditErr)
-	}
 	return a, nil
-}
-func (s Application) auditTx(ctx context.Context, tx *sql.Tx, e domain.AuditEvent) error {
-	_, err := tx.ExecContext(ctx, "INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,outcome,request_id,details,created_at) VALUES(?,?,?,?,?,?,?,?,?)", e.ID, e.ActorID, e.Action, e.EntityType, e.EntityID, e.Outcome, e.RequestID, e.Details, e.CreatedAt.Format(time.RFC3339Nano))
-	return err
 }
 func (s Application) Transition(ctx context.Context, id string, to domain.ApplicationStatus, actor, requestID string) error {
 	a, e := s.Apps.Get(ctx, id)

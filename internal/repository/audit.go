@@ -10,7 +10,18 @@ import (
 type Audit struct{ DB *sql.DB }
 
 func (r Audit) Append(ctx context.Context, e domain.AuditEvent) error {
-	_, x := r.DB.ExecContext(ctx, "INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,outcome,request_id,details,created_at) VALUES(?,?,?,?,?,?,?,?,?)", e.ID, e.ActorID, e.Action, e.EntityType, e.EntityID, e.Outcome, e.RequestID, e.Details, e.CreatedAt.Format(time.RFC3339Nano))
+	return auditInsert(ctx, r.DB, e)
+}
+func (Audit) AppendTx(ctx context.Context, tx *sql.Tx, e domain.AuditEvent) error {
+	return auditInsert(ctx, tx, e)
+}
+
+type auditExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func auditInsert(ctx context.Context, q auditExecer, e domain.AuditEvent) error {
+	_, x := q.ExecContext(ctx, "INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,outcome,request_id,details,created_at) VALUES(?,?,?,?,?,?,?,?,?)", e.ID, e.ActorID, e.Action, e.EntityType, e.EntityID, e.Outcome, e.RequestID, e.Details, e.CreatedAt.Format(time.RFC3339Nano))
 	return x
 }
 func (r Audit) ForEntity(ctx context.Context, typ, id string) ([]domain.AuditEvent, error) {

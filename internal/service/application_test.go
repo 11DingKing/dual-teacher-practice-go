@@ -117,3 +117,23 @@ func TestConcurrentQuotaReservations(t *testing.T) {
 		t.Fatalf("quota overcommitted: %d", count)
 	}
 }
+
+// A failed operation must not leave committed business state behind. The audit
+// record is written inside the submit transaction; when the actor id is
+// invalidated (operator info no longer resolvable) the audit INSERT fails on
+// its actor_id foreign key, the whole transaction rolls back, and neither the
+// application row nor the reserved quota may survive.
+func TestSubmitAuditFailureLeavesNoResidue(t *testing.T) {
+	s, db := appFixture(t)
+	_, e := s.Submit(context.Background(), domain.Application{ID: "a", TeacherID: "u", QuotaID: "q", Year: 2026, RequestedHours: 20, RequestedBudgetCents: 1000, IdempotencyKey: "key"}, "invalidated-actor", "req")
+	if e == nil {
+		t.Fatal("expected audit failure error, got nil")
+	}
+	var appN, auditN, usedH, usedB int
+	_ = db.SQL.QueryRow("SELECT COUNT(*) FROM applications").Scan(&appN)
+	_ = db.SQL.QueryRow("SELECT COUNT(*) FROM audit_events").Scan(&auditN)
+	_ = db.SQL.QueryRow("SELECT used_hours, used_budget_cents FROM quotas WHERE id='q'").Scan(&usedH, &usedB)
+	if appN != 0 || auditN != 0 || usedH != 0 || usedB != 0 {
+		t.Fatalf("failed op left residue: apps=%d audit=%d used_hours=%d used_budget=%d", appN, auditN, usedH, usedB)
+	}
+}
