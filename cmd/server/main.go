@@ -32,6 +32,9 @@ func main() {
 	users := repository.Users{DB: db.SQL}
 	_ = users.Seed(ctx, domainUser("u-teacher", "teacher", "教师"), hash("teacher-pass"))
 	_ = users.Seed(ctx, domainUser("u-hr", "hr", "人事"), hash("hr-pass"))
+	if _, err := db.SQL.ExecContext(ctx, "INSERT OR IGNORE INTO quotas(id,name,max_hours,max_budget_cents,version,active) VALUES('quota-2026','2026年度实践额度',12000,50000000,1,1)"); err != nil {
+		panic(err)
+	}
 	auth := service.Auth{Users: users, Sessions: repository.Sessions{DB: db.SQL}, Clock: now, TTL: cfg.SessionTTL}
 	srv := httpapi.Server{Auth: auth, Apps: service.Application{DB: db.SQL, Apps: repository.Applications{DB: db.SQL}, Quotas: repository.Quotas{DB: db.SQL}, Audit: repository.Audit{DB: db.SQL}, Clock: now}, Evidence: service.Evidence{Evidence: repository.Evidences{DB: db.SQL}, Apps: repository.Applications{DB: db.SQL}, Audit: repository.Audit{DB: db.SQL}, Clock: now}, Practice: service.Practice{Practices: repository.Practices{DB: db.SQL}, Apps: repository.Applications{DB: db.SQL}, Audit: repository.Audit{DB: db.SQL}, Clock: now}, Review: service.Review{Reviews: repository.Reviews{DB: db.SQL}, Evidences: repository.Evidences{DB: db.SQL}, Apps: repository.Applications{DB: db.SQL}, Audit: repository.Audit{DB: db.SQL}, Clock: now}, Report: service.Report{Apps: repository.Applications{DB: db.SQL}, Audit: repository.Audit{DB: db.SQL}}}
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Routes(), ReadHeaderTimeout: 5 * time.Second}
