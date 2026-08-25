@@ -69,6 +69,25 @@ func TestEvidenceServiceCorrection(t *testing.T) {
 		t.Fatalf("%+v %v", items, x)
 	}
 }
+func TestEvidenceServiceCancelLeavesStatusUnchanged(t *testing.T) {
+	e, _, db := evidenceFixture(t)
+	if x := e.Add(context.Background(), domain.Evidence{ID: "e", ApplicationID: "a", Kind: "k", Title: "t", URI: "u"}, "u", "r"); x != nil {
+		t.Fatal(x)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if x := e.Verify(ctx, "e", "r1", "req", true, "已核验"); x == nil {
+		t.Fatal("verify accepted after cancel")
+	}
+	var status string
+	if x := db.SQL.QueryRow("SELECT verification_status FROM evidences WHERE id='e'").Scan(&status); x != nil || status != "pending" {
+		t.Fatalf("%s %v", status, x)
+	}
+	var n int
+	if x := db.SQL.QueryRow("SELECT COUNT(*) FROM audit_events WHERE action='evidence_reviewed'").Scan(&n); x != nil || n != 0 {
+		t.Fatalf("audit rows=%d %v", n, x)
+	}
+}
 func TestReviewServiceNeedsPeerState(t *testing.T) {
 	_, r, _ := evidenceFixture(t)
 	if x := r.Add(context.Background(), domain.Review{ID: "r", ApplicationID: "a", Score: 80, Decision: domain.ReviewPass, Comment: "好"}, "r1", "req"); x == nil {

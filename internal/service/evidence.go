@@ -32,6 +32,9 @@ func (s Evidence) Add(ctx context.Context, e domain.Evidence, actor, requestID s
 	return s.Audit.Append(ctx, domain.AuditEvent{ID: token(), ActorID: actor, Action: "evidence_submitted", EntityType: "application", EntityID: e.ApplicationID, Outcome: "success", RequestID: requestID, Details: e.Kind, CreatedAt: s.Clock.Now()})
 }
 func (s Evidence) Verify(ctx context.Context, id, actor, requestID string, approved bool, note string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	to := domain.EvidenceCorrection
 	if approved {
 		to = domain.EvidenceVerified
@@ -39,9 +42,5 @@ func (s Evidence) Verify(ctx context.Context, id, actor, requestID string, appro
 	if err := s.Evidence.SetStatus(ctx, id, domain.EvidencePending, to, actor, s.Clock.Now(), note); err != nil {
 		return err
 	}
-	auditCtx := ctx
-	if ctx != nil {
-		auditCtx = context.Background()
-	}
-	return s.Audit.Append(auditCtx, domain.AuditEvent{ID: token(), ActorID: actor, Action: "evidence_reviewed", EntityType: "evidence", EntityID: id, Outcome: "success", RequestID: requestID, Details: fmt.Sprintf("approved=%t", approved), CreatedAt: s.Clock.Now()})
+	return s.Audit.Append(ctx, domain.AuditEvent{ID: token(), ActorID: actor, Action: "evidence_reviewed", EntityType: "evidence", EntityID: id, Outcome: "success", RequestID: requestID, Details: fmt.Sprintf("approved=%t", approved), CreatedAt: s.Clock.Now()})
 }

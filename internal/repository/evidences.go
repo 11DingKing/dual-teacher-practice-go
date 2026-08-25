@@ -13,7 +13,7 @@ func writeContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
 	}
-	return context.Background()
+	return ctx
 }
 
 func (r Evidences) Add(ctx context.Context, e domain.Evidence) error {
