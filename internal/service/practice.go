@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"github.com/11DingKing/dual-teacher-practice-go/internal/clock"
 	"github.com/11DingKing/dual-teacher-practice-go/internal/domain"
@@ -35,6 +36,12 @@ func (s Practice) Register(ctx context.Context, p domain.Practice, actor, reques
 	return s.Audit.Append(ctx, domain.AuditEvent{ID: token(), ActorID: actor, Action: "practice_registered", EntityType: "practice", EntityID: p.ID, Outcome: "success", RequestID: requestID, Details: p.CompanyName, CreatedAt: s.Clock.Now()})
 }
 func (s Practice) RecordHours(ctx context.Context, id string, h int, actor, requestID string) error {
+	// Honour the request context up front: a cancelled or timed-out call must
+	// not mutate practice data, so we never drop ctx in favour of
+	// context.Background() as the previous detached write did.
+	if e := ctx.Err(); e != nil {
+		return e
+	}
 	p, e := s.Practices.Get(ctx, id)
 	if e != nil {
 		return e
@@ -42,8 +49,26 @@ func (s Practice) RecordHours(ctx context.Context, id string, h int, actor, requ
 	if h < 0 || h > p.PlannedHours {
 		return domain.ErrQuotaExceeded
 	}
-	if e = s.Practices.UpdateHoursUnbounded(id, h, p.Version); e != nil {
+	now := s.Clock.Now()
+	// Update the practice hours and the audit event inside a single
+	// transaction bound to ctx. A late cancellation or timeout fails the
+	// whole transaction (rollback) instead of leaving a written hours row
+	// with a missing or independently-written audit record.
+	tx, e := s.Practices.BeginTx(ctx)
+	if e != nil {
 		return e
 	}
-	return s.Audit.Append(ctx, domain.AuditEvent{ID: token(), ActorID: actor, Action: "practice_hours_recorded", EntityType: "practice", EntityID: id, Outcome: "success", RequestID: requestID, Details: fmt.Sprintf("hours=%d", h), CreatedAt: s.Clock.Now()})
+	defer tx.Rollback()
+	if e = s.Practices.UpdateHoursTx(ctx, tx, id, h, p.Version); e != nil {
+		return e
+	}
+	ev := domain.AuditEvent{ID: token(), ActorID: actor, Action: "practice_hours_recorded", EntityType: "practice", EntityID: id, Outcome: "success", RequestID: requestID, Details: fmt.Sprintf("hours=%d", h), CreatedAt: now}
+	if e = auditPracticeTx(ctx, tx, ev); e != nil {
+		return e
+	}
+	return tx.Commit()
+}
+func auditPracticeTx(ctx context.Context, tx *sql.Tx, e domain.AuditEvent) error {
+	_, err := tx.ExecContext(ctx, "INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,outcome,request_id,details,created_at) VALUES(?,?,?,?,?,?,?,?,?)", e.ID, e.ActorID, e.Action, e.EntityType, e.EntityID, e.Outcome, e.RequestID, e.Details, e.CreatedAt.Format(time.RFC3339Nano))
+	return err
 }
