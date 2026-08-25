@@ -1,0 +1,8 @@
+test:
+	GOTOOLCHAIN=local go test ./... -count=1
+race:
+	GOTOOLCHAIN=local go test -race ./... -count=1
+vet:
+	GOTOOLCHAIN=local go vet ./...
+build:
+	GOTOOLCHAIN=local go build ./...
