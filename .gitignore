@@ -1,0 +1,6 @@
+.env
+*.db
+*.db-shm
+*.db-wal
+coverage.out
+.gomark-authoring/
